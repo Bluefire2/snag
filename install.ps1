@@ -1,4 +1,4 @@
-# One-time setup for CopyCat. Safe to re-run.
+# One-time setup for snag. Safe to re-run.
 #   powershell -ExecutionPolicy Bypass -File install.ps1
 
 $dir = $PSScriptRoot
@@ -26,10 +26,10 @@ if (-not (Test-Path $PROFILE)) {
     New-Item -ItemType File -Path $PROFILE -Force | Out-Null
 }
 if (-not (Select-String -Path $PROFILE -SimpleMatch $line -Quiet)) {
-    Add-Content -Path $PROFILE -Value "`r`n# CopyCat`r`n$line" -Encoding UTF8
-    Write-Host "Added CopyCat to $PROFILE."
+    Add-Content -Path $PROFILE -Value "`r`n# snag`r`n$line" -Encoding UTF8
+    Write-Host "Added snag to $PROFILE."
 } else {
-    Write-Host "CopyCat already in $PROFILE."
+    Write-Host "snag already in $PROFILE."
 }
 
 # 3. The profile only loads if the execution policy allows local scripts.

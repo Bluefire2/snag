@@ -1,4 +1,4 @@
-# CopyCat: `snag` for PowerShell. Dot-source this from $PROFILE.
+# snag for PowerShell. Dot-source this from $PROFILE.
 #
 #   snag git status                         # plain command + args
 #   snag { Get-Process | select -first 5 }  # scriptblock for pipelines / complex lines

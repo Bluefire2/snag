@@ -1,5 +1,5 @@
 @echo off
-rem CopyCat: `snag` for cmd.exe. Runs the command, streams its output, copies it to the clipboard.
+rem snag for cmd.exe. Runs the command, streams its output, copies it to the clipboard.
 setlocal DisableDelayedExpansion
 if [%1]==[] (
     echo usage: snag ^<command^> [args...]

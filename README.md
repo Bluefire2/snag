@@ -1,4 +1,4 @@
-# CopyCat (`snag`)
+# snag
 
 Prefix a command with `snag`: it runs normally, output shows live, and when it finishes the command
 line plus all its output (stdout and stderr) is on the clipboard:

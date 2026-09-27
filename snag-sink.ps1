@@ -1,4 +1,4 @@
-# CopyCat stdin tee, used by snag.cmd: echo each line as it arrives, then copy everything to the
+# snag stdin tee, used by snag.cmd: echo each line as it arrives, then copy everything to the
 # clipboard headed by "> <command line>" (read from the file snag.cmd wrote to $env:SNAG_ARGFILE).
 
 $lines = [System.Collections.Generic.List[string]]::new()
