@@ -4,6 +4,7 @@
 #   snag { Get-Process | select -first 5 }  # scriptblock for pipelines / complex lines
 #   snag -Full git log                      # don't trim long output
 #   snag -Last                              # re-run the previous history entry, after confirming
+#   snag -Append git diff                   # add to the clipboard instead of replacing it
 #
 # Output streams to the console as usual; when the command finishes, "> <command>" plus the full
 # output (stdout and stderr) is put on the clipboard. Output over $env:SNAG_MAX_LINES lines (default
@@ -13,6 +14,7 @@ function snag {
     $maxLines = 200
     if ($env:SNAG_MAX_LINES -match '^\s*\d+\s*$') { $maxLines = [int]$env:SNAG_MAX_LINES }
     $last = $false
+    $appendClip = $false
 
     # snag's own options come first; the first argument not starting with '-' begins the command.
     $skip = 0
@@ -20,6 +22,7 @@ function snag {
         switch ($args[$skip]) {
             '-Full' { $maxLines = 0 }
             '-Last' { $last = $true }
+            '-Append' { $appendClip = $true }
             default {
                 Write-Host "snag: unknown option '$($args[$skip])'" -ForegroundColor Yellow
                 return
@@ -49,7 +52,7 @@ function snag {
         }
         $sb = [scriptblock]::Create($cmdText)
     } elseif ($cmdArgs.Count -eq 0) {
-        Write-Host 'usage: snag [-Full] <command> [args...]   or   snag [-Full] { <pipeline> }   or   snag -Last' -ForegroundColor Yellow
+        Write-Host 'usage: snag [-Full] [-Append] <command> [args...]   or   snag [-Full] [-Append] { <pipeline> }   or   snag -Last' -ForegroundColor Yellow
         return
     } elseif ($cmdArgs.Count -eq 1 -and $cmdArgs[0] -is [scriptblock]) {
         $sb = $cmdArgs[0]
@@ -113,6 +116,11 @@ function snag {
     }
 
     $text = "> $cmdText`r`n" + ($lines -join "`r`n")
+    if ($appendClip) {
+        $existing = $null
+        try { $existing = Get-Clipboard -Raw -ErrorAction Stop } catch {}
+        if ($existing) { $text = $existing.TrimEnd("`r", "`n") + "`r`n`r`n" + $text }
+    }
     Set-Clipboard -Value $text
-    Write-Host "[snag] copied $copied$status" -ForegroundColor DarkGray
+    Write-Host "[snag] copied $copied$status$(if ($appendClip) { ' (appended)' })" -ForegroundColor DarkGray
 }
