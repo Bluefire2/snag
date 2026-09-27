@@ -11,6 +11,11 @@ On branch main
 
 In PowerShell, if a native command exits non-zero, a final `[exit N]` line is added.
 
+Long output is trimmed on the clipboard (the console still shows everything): past 200 lines, only
+the first 50 and last 150 are kept, with a `... [N lines omitted] ...` marker between them. Use
+`snag -Full ...` in PowerShell to keep everything, or set `SNAG_MAX_LINES` to change the limit
+(`0` = no limit) in either shell.
+
 ## Install
 
 ```
@@ -27,6 +32,7 @@ Open a new terminal afterwards.
 | PowerShell | `snag git status`                                   |
 | PowerShell | `snag { Get-Process \| sort CPU -desc \| select -first 5 }` |
 | PowerShell | `snag cmd /c dir /b` (cmd builtins)                 |
+| PowerShell | `snag -Full git log` (don't trim long output)       |
 | cmd        | `snag dir /b`                                       |
 | cmd        | `snag dir ^| findstr txt` (escape the pipe)         |
 | cmd        | `snag cmd /c "echo a & echo b"` (chaining)          |
