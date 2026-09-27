@@ -24,6 +24,10 @@ function snag {
         }) -join ' '
     }
 
+    # ANSI escapes (CSI colors/cursor moves, OSC titles/links) are stripped from the clipboard copy
+    # only; the console still gets the raw text.
+    $ansi = '\x1B(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1B]*(?:\x07|\x1B\\)|[@-Z\\-_])'
+
     $ErrorActionPreference = 'Continue'
     $lines = [System.Collections.Generic.List[string]]::new()
 
@@ -38,7 +42,7 @@ function snag {
                 if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.ToString() } else { $_ }
             } |
             Out-String -Stream |
-            ForEach-Object { Write-Host $_; $lines.Add($_.TrimEnd()) }
+            ForEach-Object { Write-Host $_; $lines.Add(($_ -replace $ansi, '').TrimEnd()) }
     } catch {
         $msg = $_.ToString()
         Write-Host $msg -ForegroundColor Red

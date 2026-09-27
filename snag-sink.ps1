@@ -1,10 +1,13 @@
 # snag stdin tee, used by snag.cmd: echo each line as it arrives, then copy everything to the
 # clipboard headed by "> <command line>" (read from the file snag.cmd wrote to $env:SNAG_ARGFILE).
 
+# ANSI escapes are stripped from the clipboard copy only (see snag.ps1).
+$ansi = '\x1B(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1B]*(?:\x07|\x1B\\)|[@-Z\\-_])'
+
 $lines = [System.Collections.Generic.List[string]]::new()
 while ($null -ne ($line = [Console]::In.ReadLine())) {
     [Console]::Out.WriteLine($line)
-    $lines.Add($line)
+    $lines.Add(($line -replace $ansi, '').TrimEnd())
 }
 
 $cmdText = ''

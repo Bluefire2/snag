@@ -35,7 +35,8 @@ Open a new terminal afterwards.
 
 - **Pipes and `&` belong to the outer shell.** Unescaped, `snag a | b` pipes snag's output into `b`.
   Use a scriptblock in PowerShell, `^|` or `cmd /c "..."` in cmd.
-- Output is piped, so programs drop colors, and interactive commands (prompts, pagers) won't work.
+- Output is piped, so most programs drop colors, and interactive commands (prompts, pagers) won't
+  work. Color codes that do come through are stripped from the clipboard copy.
 - In cmd, `%ERRORLEVEL%` after `snag` is not the command's exit code, and no `[exit N]` line is
   added (the pipe into the tee loses it). In PowerShell, `$LASTEXITCODE` is preserved.
 
