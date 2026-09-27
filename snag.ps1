@@ -3,6 +3,7 @@
 #   snag git status                         # plain command + args
 #   snag { Get-Process | select -first 5 }  # scriptblock for pipelines / complex lines
 #   snag -Full git log                      # don't trim long output
+#   snag -Last                              # re-run the previous history entry, after confirming
 #
 # Output streams to the console as usual; when the command finishes, "> <command>" plus the full
 # output (stdout and stderr) is put on the clipboard. Output over $env:SNAG_MAX_LINES lines (default
@@ -11,12 +12,14 @@
 function snag {
     $maxLines = 200
     if ($env:SNAG_MAX_LINES -match '^\s*\d+\s*$') { $maxLines = [int]$env:SNAG_MAX_LINES }
+    $last = $false
 
     # snag's own options come first; the first argument not starting with '-' begins the command.
     $skip = 0
     while ($skip -lt $args.Count -and $args[$skip] -is [string] -and $args[$skip] -like '-*') {
         switch ($args[$skip]) {
             '-Full' { $maxLines = 0 }
+            '-Last' { $last = $true }
             default {
                 Write-Host "snag: unknown option '$($args[$skip])'" -ForegroundColor Yellow
                 return
@@ -26,12 +29,29 @@ function snag {
     }
     $cmdArgs = @($args | Select-Object -Skip $skip)
 
-    if ($cmdArgs.Count -eq 0) {
-        Write-Host 'usage: snag [-Full] <command> [args...]   or   snag [-Full] { <pipeline> }' -ForegroundColor Yellow
+    if ($last) {
+        if ($cmdArgs.Count -gt 0) {
+            Write-Host 'snag: -Last takes no command' -ForegroundColor Yellow
+            return
+        }
+        # The current `snag -Last` call isn't in history yet while it's still running, so this is
+        # the command entered right before it.
+        $h = Get-History -Count 1
+        if (-not $h) {
+            Write-Host 'snag: no previous command in history' -ForegroundColor Yellow
+            return
+        }
+        $cmdText = $h.CommandLine
+        $resp = Read-Host "snag: re-run '$cmdText'? [y/N]"
+        if ($resp -notmatch '^[Yy]') {
+            Write-Host 'snag: cancelled' -ForegroundColor Yellow
+            return
+        }
+        $sb = [scriptblock]::Create($cmdText)
+    } elseif ($cmdArgs.Count -eq 0) {
+        Write-Host 'usage: snag [-Full] <command> [args...]   or   snag [-Full] { <pipeline> }   or   snag -Last' -ForegroundColor Yellow
         return
-    }
-
-    if ($cmdArgs.Count -eq 1 -and $cmdArgs[0] -is [scriptblock]) {
+    } elseif ($cmdArgs.Count -eq 1 -and $cmdArgs[0] -is [scriptblock]) {
         $sb = $cmdArgs[0]
         $cmdText = $sb.ToString().Trim()
     } else {

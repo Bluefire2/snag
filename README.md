@@ -16,6 +16,10 @@ the first 50 and last 150 are kept, with a `... [N lines omitted] ...` marker be
 `snag -Full ...` in PowerShell to keep everything, or set `SNAG_MAX_LINES` to change the limit
 (`0` = no limit) in either shell.
 
+`snag -Last` (PowerShell only) re-runs the previous command from your history, after asking
+`y/N` — it can't peek at output already printed, so it has to run the command again, which is
+fine for something like `git status` and not for anything that changes state.
+
 ## Install
 
 ```
@@ -33,6 +37,7 @@ Open a new terminal afterwards.
 | PowerShell | `snag { Get-Process \| sort CPU -desc \| select -first 5 }` |
 | PowerShell | `snag cmd /c dir /b` (cmd builtins)                 |
 | PowerShell | `snag -Full git log` (don't trim long output)       |
+| PowerShell | `snag -Last` (re-run + copy the previous command, with confirmation) |
 | cmd        | `snag dir /b`                                       |
 | cmd        | `snag dir ^| findstr txt` (escape the pipe)         |
 | cmd        | `snag cmd /c "echo a & echo b"` (chaining)          |
