@@ -26,6 +26,11 @@ function snag {
 
     $ErrorActionPreference = 'Continue'
     $lines = [System.Collections.Generic.List[string]]::new()
+
+    # Clear $LASTEXITCODE so we can tell whether a native command ran (and put back the old value
+    # if only cmdlets ran, so `snag` doesn't clobber it).
+    $prevExit = $global:LASTEXITCODE
+    $global:LASTEXITCODE = $null
     try {
         & $sb 2>&1 |
             ForEach-Object {
@@ -39,12 +44,21 @@ function snag {
         Write-Host $msg -ForegroundColor Red
         $lines.Add($msg)
     }
+    $exitCode = $global:LASTEXITCODE
+    if ($null -eq $exitCode) { $global:LASTEXITCODE = $prevExit }
 
     # Formatted output (tables) is padded with blank lines at both ends; drop them.
     while ($lines.Count -gt 0 -and $lines[0] -eq '') { $lines.RemoveAt(0) }
     while ($lines.Count -gt 0 -and $lines[$lines.Count - 1] -eq '') { $lines.RemoveAt($lines.Count - 1) }
 
+    $count = $lines.Count
+    $status = ''
+    if ($exitCode) {
+        $lines.Add("[exit $exitCode]")
+        $status = " (exit $exitCode)"
+    }
+
     $text = "> $cmdText`r`n" + ($lines -join "`r`n")
     Set-Clipboard -Value $text
-    Write-Host "[snag] copied $($lines.Count) lines" -ForegroundColor DarkGray
+    Write-Host "[snag] copied $count lines$status" -ForegroundColor DarkGray
 }

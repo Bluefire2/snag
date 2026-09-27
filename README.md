@@ -9,6 +9,8 @@ On branch main
 ...
 ```
 
+In PowerShell, if a native command exits non-zero, a final `[exit N]` line is added.
+
 ## Install
 
 ```
@@ -34,8 +36,8 @@ Open a new terminal afterwards.
 - **Pipes and `&` belong to the outer shell.** Unescaped, `snag a | b` pipes snag's output into `b`.
   Use a scriptblock in PowerShell, `^|` or `cmd /c "..."` in cmd.
 - Output is piped, so programs drop colors, and interactive commands (prompts, pagers) won't work.
-- In cmd, `%ERRORLEVEL%` after `snag` is not the command's exit code. In PowerShell,
-  `$LASTEXITCODE` is preserved.
+- In cmd, `%ERRORLEVEL%` after `snag` is not the command's exit code, and no `[exit N]` line is
+  added (the pipe into the tee loses it). In PowerShell, `$LASTEXITCODE` is preserved.
 
 ## Files
 
