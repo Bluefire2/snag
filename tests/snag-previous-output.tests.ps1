@@ -263,5 +263,44 @@ if ($h15 -cne 'echo flag-marker') {
     Write-Host 'ok 15 cmd dot append'
 }
 
+# 16. A later output line that equals the command stays in the copy.
+$r = Select-SnagPreviousOutput -LogicalLines @(
+    'PS C:\repo> git status',
+    'On branch main',
+    'git status',
+    'PS C:\repo> snag'
+) -HistoryText 'git status' -Shell powershell
+Assert-SnagCase -Name '16 output echo after command' -Result $r -CommandText 'git status' `
+    -OutputLines @('On branch main', 'git status') -Partial $false -NoHistory $false
+
+# 17. Output that only ends with the invocation is not an earlier snag prompt.
+$logical17 = @(
+    'C:\repo> echo hello snag',
+    'hello snag',
+    'C:\repo> snag'
+)
+$h17 = Resolve-SnagCmdHistory -HistoryLines @('echo hello snag', 'snag') -CurrentInvocation 'snag' -LogicalLines $logical17
+$r = Select-SnagPreviousOutput -LogicalLines $logical17 -HistoryText $h17 -Shell cmd
+if ($h17 -cne 'echo hello snag') {
+    Write-Host "FAIL 17 output suffix history=[$h17]"
+    $failed++
+} else {
+    Assert-SnagCase -Name '17 output suffix' -Result $r -CommandText 'echo hello snag' `
+        -OutputLines @('hello snag') -Partial $false -NoHistory $false
+}
+
+# 18. A full-width row is not glued onto the following prompt.
+$width18 = 20
+$fullRow = '1234567890123456789X'
+$promptRow = 'PS C:\> snag' + (' ' * ($width18 - 'PS C:\> snag'.Length))
+$joined18 = Join-SnagConsoleRows -Rows @($fullRow, $promptRow) -Width $width18
+$case18Ok = $joined18.Count -eq 2 -and $joined18[0] -ceq $fullRow -and $joined18[1] -ceq 'PS C:\> snag'
+if ($case18Ok) {
+    Write-Host 'ok 18 prompt not glued'
+} else {
+    Write-Host "FAIL 18 prompt not glued count=$($joined18.Count) line0=[$($joined18[0])] line1=[$($joined18[1])]"
+    $failed++
+}
+
 if ($failed -gt 0) { exit 1 }
 exit 0
