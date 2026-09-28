@@ -18,7 +18,7 @@ output already on screen does not add one.
 
 A command run copies every line. PowerShell has no line cap, and no `snag -Full` or `snag -Last`.
 
-`snag -Append` adds to whatever is already on the clipboard instead of replacing it, with one blank line between them. On bare `snag`, `-Append` works in both shells. On a command, `-Append` is PowerShell only. In cmd, bare `snag` still keeps the screen-buffer cap unless you pass `-Full`.
+`snag -Append` adds to whatever is already on the clipboard instead of replacing it, with one blank line between them. On bare `snag`, `-Append` works in both shells. On a command, `-Append` is PowerShell only. In cmd, bare `snag` keeps 200 lines of the screen buffer unless you pass `-Full`. `SNAG_MAX_LINES` overrides that cap when `-Full` is absent (`0` means no cap). PowerShell ignores it and always copies every line.
 
 ## Install
 

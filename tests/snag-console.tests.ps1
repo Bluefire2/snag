@@ -635,9 +635,9 @@ function Test-CmdMain {
         $screen = Get-Screen
         $after = (After-Command $screen '.\snag.cmd -Last') -join "`n"
         $problems = New-Object System.Collections.Generic.List[string]
+        if ($after.IndexOf('unknown option -Last', [StringComparison]::Ordinal) -lt 0) { $problems.Add('missing unknown option') }
         if ($after.IndexOf('usage:', [StringComparison]::Ordinal) -lt 0) { $problems.Add('usage not printed') }
-        if ($after.IndexOf('PowerShell only', [StringComparison]::Ordinal) -lt 0) { $problems.Add('missing PowerShell-only note') }
-        if ($after.IndexOf("re-run '", [StringComparison]::Ordinal) -ge 0) { $problems.Add('tried to re-run') }
+        if ($after.IndexOf('re-run', [StringComparison]::Ordinal) -ge 0) { $problems.Add('claimed a re-run') }
         if ((Count-Eq $screen 'should-not-rerun') -ne $before) { $problems.Add('echo ran again') }
         if ($problems.Count -eq 0) { Pass 'cmd-last' }
         else { Fail 'cmd-last' (($problems -join '; ') + "`nAFTER $after") }

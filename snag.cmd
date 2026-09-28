@@ -6,7 +6,9 @@ setlocal DisableDelayedExpansion
 if /I "%~1"=="/?" goto :snag_usage
 if /I "%~1"=="-?" goto :snag_usage
 if /I "%~1"=="--help" goto :snag_usage
-if /I "%~1"=="-Last" goto :snag_usage
+rem -Last is not a command. Say so before usage; do not claim PowerShell re-runs it.
+if /I "%~1"=="-Last" set "SNAG_ONE=%~1"
+if /I "%~1"=="-Last" goto :snag_unknown
 
 if "%~1"=="" goto :snag_buffer_plain
 if /I "%~1"=="-Full" if "%~2"=="" goto :snag_buffer_full
@@ -38,7 +40,6 @@ goto :snag_usage
 echo usage: snag [-Full] [-Append]
 echo        snag ^<command^> [args...]
 echo Bare snag copies the previous command's output already on screen.
-echo -Last is PowerShell only; it re-runs the previous command.
 exit /b 1
 
 :snag_buffer_plain
