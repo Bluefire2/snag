@@ -23,7 +23,11 @@ if "%~2"=="" if "%SNAG_ONE:~0,1%"=="/" goto :snag_unknown
 goto :snag_run
 
 :snag_unknown
-echo snag: unknown option '%~1'
+rem Delayed expansion so the value is not reparsed for & | < >. End it before
+rem usage so the run path, which is never reached from here, stays expansion-off.
+setlocal EnableDelayedExpansion
+echo snag: unknown option !SNAG_ONE!
+endlocal
 goto :snag_usage
 
 :snag_usage

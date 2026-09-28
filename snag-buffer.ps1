@@ -114,7 +114,11 @@ function Resolve-SnagCmdHistory {
     if ($hist.Count -eq 0) { return '' }
 
     $last = $hist[$hist.Count - 1]
-    $same = [string]::Equals($last, $CurrentInvocation, [System.StringComparison]::Ordinal)
+    # cmd accepts -Full / -Append in any case, and the batch file rewrites them to a
+    # canonical invocation. doskey keeps the typed text (snag -full, Snag). Compare
+    # case-insensitively, but search the screen with $last: the boundary match is
+    # ordinal, and the screen shows what was typed.
+    $same = [string]::Equals($last, $CurrentInvocation, [System.StringComparison]::OrdinalIgnoreCase)
     if ($same) {
         # Consecutive duplicates are not stored. Keep last when an earlier line above the
         # anchor is a longer prompt-boundary match; otherwise last is the in-flight command.
@@ -125,8 +129,8 @@ function Resolve-SnagCmdHistory {
                 $line = $LogicalLines[$i]
                 if ($null -eq $line) { $line = '' }
                 $trimmed = $line.TrimEnd()
-                $isLonger = $trimmed.Length -gt $CurrentInvocation.Length
-                if ($isLonger -and (Test-SnagBoundaryMatch -Line $trimmed -Segment $CurrentInvocation)) {
+                $isLonger = $trimmed.Length -gt $last.Length
+                if ($isLonger -and (Test-SnagBoundaryMatch -Line $trimmed -Segment $last)) {
                     $longer = $true
                     break
                 }
@@ -264,12 +268,48 @@ namespace Snag {
         public static extern bool GetConsoleScreenBufferInfo(
             IntPtr hConsoleOutput, out CONSOLE_SCREEN_BUFFER_INFO lpConsoleScreenBufferInfo);
 
-        // EntryPoint is explicit so CharSet.Unicode does not look up a doubled "WW" name.
+        // ExactSpelling skips the W-suffix probe, which would look up "WW" first.
         [DllImport("kernel32.dll", EntryPoint = "ReadConsoleOutputCharacterW",
-            SetLastError = true, CharSet = CharSet.Unicode)]
+            SetLastError = true, CharSet = CharSet.Unicode, ExactSpelling = true)]
         public static extern bool ReadConsoleOutputCharacter(
             IntPtr hConsoleOutput, [Out] char[] lpCharacter, int nLength,
             COORD dwReadCoord, out int lpNumberOfCharsRead);
+
+        // Null cells become spaces and each row is padded to width, in C# so a tall
+        // conhost scrollback is not a PowerShell loop per cell. Fills rows; returns
+        // false if a read fails. An empty result (cursor on row 0) is success.
+        public static bool ReadRows(IntPtr handle, int width, int cursorY, System.Collections.Generic.List<string> rows) {
+            rows.Clear();
+            if (width <= 0 || cursorY <= 0) return true;
+            char[] buf = new char[width];
+            for (int y = 0; y < cursorY; y++) {
+                int nRead;
+                COORD coord = new COORD();
+                coord.X = 0;
+                coord.Y = (short)y;
+                if (!ReadConsoleOutputCharacter(handle, buf, width, coord, out nRead)) return false;
+                int copy = nRead;
+                if (copy > width) copy = width;
+                if (copy < 0) copy = 0;
+                char[] chars = new char[width];
+                for (int c = 0; c < width; c++) chars[c] = ' ';
+                for (int c = 0; c < copy; c++) {
+                    char ch = buf[c];
+                    chars[c] = ch == '\0' ? ' ' : ch;
+                }
+                rows.Add(new string(chars));
+            }
+            while (rows.Count > 0) {
+                string tail = rows[rows.Count - 1];
+                bool blank = true;
+                for (int c = 0; c < tail.Length; c++) {
+                    if (tail[c] != ' ') { blank = false; break; }
+                }
+                if (!blank) break;
+                rows.RemoveAt(rows.Count - 1);
+            }
+            return true;
+        }
     }
 }
 '@
@@ -295,38 +335,9 @@ namespace Snag {
         if ($width -le 0) { return $null }
 
         $rows = [System.Collections.Generic.List[string]]::new()
-        # cursorY of 0 must read nothing; 0..-1 is not an empty range.
-        for ($y = 0; $y -lt $cursorY; $y++) {
-            $coord = New-Object Snag.ConsoleNative+COORD
-            $coord.X = 0
-            $coord.Y = [int16]$y
-            $buf = New-Object 'char[]' $width
-            $nRead = 0
-            $readOk = [Snag.ConsoleNative]::ReadConsoleOutputCharacter($handle, $buf, $width, $coord, [ref]$nRead)
-            if (-not $readOk) { return $null }
-
-            $chars = New-Object 'char[]' $width
-            for ($c = 0; $c -lt $width; $c++) { $chars[$c] = ' ' }
-            $copy = $nRead
-            if ($copy -gt $width) { $copy = $width }
-            if ($copy -lt 0) { $copy = 0 }
-            for ($c = 0; $c -lt $copy; $c++) {
-                $ch = $buf[$c]
-                if ($ch -eq [char]0) { $ch = ' ' }
-                $chars[$c] = $ch
-            }
-            $rows.Add([string]::new($chars))
-        }
-
-        while ($rows.Count -gt 0) {
-            $tail = $rows[$rows.Count - 1]
-            $blank = $true
-            for ($c = 0; $c -lt $tail.Length; $c++) {
-                if ($tail[$c] -ne ' ') { $blank = $false; break }
-            }
-            if (-not $blank) { break }
-            $rows.RemoveAt($rows.Count - 1)
-        }
+        # cursorY of 0 reads nothing. ReadRows returns false only when a row read fails.
+        $readOk = [Snag.ConsoleNative]::ReadRows($handle, $width, $cursorY, $rows)
+        if (-not $readOk) { return $null }
 
         return [pscustomobject]@{
             Width = $width

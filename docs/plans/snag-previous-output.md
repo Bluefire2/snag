@@ -240,11 +240,11 @@ function Resolve-SnagCmdHistory {
 
 Strip trailing empty history lines. Let `last` be the final remaining line, or `''` when none remain.
 
-- If `last` equals `$CurrentInvocation` and some logical line above the anchor is a **longer prompt-boundary match** for that same text, keep `last`. The duplicate was collapsed, so `last` is the previous command.
-- If `last` equals `$CurrentInvocation` and no such earlier line exists, drop `last` and take the new final line. That dropped line is the in-flight command.
-- If `last` does not equal `$CurrentInvocation`, keep `last`. The in-flight line was not recorded, so `last` is already the previous command.
+- If `last` equals `$CurrentInvocation` under ordinal ignore-case, and some logical line above the anchor is a **longer prompt-boundary match** for `$last` (the doskey text, not the canonical invocation), keep `last`. The duplicate was collapsed, so `last` is the previous command. Ignore-case is required because cmd accepts `-Full` / `-Append` in any case and the batch file rewrites them (`snag -full` is passed as `snag -Full`). The screen search stays ordinal and uses `$last`, because that is the text on screen (`Snag`, `snag -full`).
+- If `last` equals `$CurrentInvocation` under ordinal ignore-case and no such earlier line exists, drop `last` and take the new final line. That dropped line is the in-flight command.
+- If `last` does not equal `$CurrentInvocation` even ignoring case, keep `last`. The in-flight line was not recorded, so `last` is already the previous command.
 
-A longer prompt-boundary match uses the first-segment rule below: `TrimEnd` the line, it matches the invocation `S` (the line equals `S`, or it ends with `S` and the character immediately before is whitespace or `>`), and the trimmed line is strictly longer than `S`. A bare output line equal to `snag` does not count. The anchor is the same last non-blank logical line `Select-SnagPreviousOutput` excludes. No history left after this rule → `''`.
+A longer prompt-boundary match uses the first-segment rule below: `TrimEnd` the line, it matches `$last` (the line equals `$last`, or it ends with `$last` and the character immediately before is whitespace or `>`), and the trimmed line is strictly longer than `$last`. A bare output line equal to `snag` does not count. The anchor is the same last non-blank logical line `Select-SnagPreviousOutput` excludes. No history left after this rule → `''`.
 
 Return that one line as the history string. `Resolve-SnagCmdHistory` does not `Write-Host`.
 

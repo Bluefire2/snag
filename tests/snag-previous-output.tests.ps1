@@ -211,5 +211,35 @@ if ($h11 -cne 'snag') {
         -OutputLines @('[snag] copied 1 lines') -Partial $false -NoHistory $false
 }
 
+# 12. Canonical invocation differs in case from the doskey line. Drop the in-flight line.
+$logical12 = @('C:\repo> dir', 'file.txt', 'C:\repo> snag -full')
+$h12 = Resolve-SnagCmdHistory -HistoryLines @('dir', 'snag -full') -CurrentInvocation 'snag -Full' -LogicalLines $logical12
+$r = Select-SnagPreviousOutput -LogicalLines $logical12 -HistoryText $h12 -Shell cmd
+if ($h12 -cne 'dir') {
+    Write-Host "FAIL 12 cmd history flag case history=[$h12]"
+    $failed++
+} else {
+    Assert-SnagCase -Name '12 cmd history flag case' -Result $r -CommandText 'dir' `
+        -OutputLines @('file.txt') -Partial $false -NoHistory $false
+}
+
+# 13. Command token case differs, and the second Snag was not stored. Search with the doskey text.
+$logical13 = @(
+    'C:\repo> dir',
+    'file.txt',
+    'C:\repo> Snag',
+    '[snag] copied 1 lines',
+    'C:\repo> Snag'
+)
+$h13 = Resolve-SnagCmdHistory -HistoryLines @('dir', 'Snag') -CurrentInvocation 'snag' -LogicalLines $logical13
+$r = Select-SnagPreviousOutput -LogicalLines $logical13 -HistoryText $h13 -Shell cmd
+if ($h13 -cne 'Snag') {
+    Write-Host "FAIL 13 cmd history token case history=[$h13]"
+    $failed++
+} else {
+    Assert-SnagCase -Name '13 cmd history token case' -Result $r -CommandText 'Snag' `
+        -OutputLines @('[snag] copied 1 lines') -Partial $false -NoHistory $false
+}
+
 if ($failed -gt 0) { exit 1 }
 exit 0
