@@ -12,11 +12,11 @@
 # PowerShell 7 and Windows Terminal are skipped when they are not installed.
 # Expect a few minutes. Windows will open and close.
 #
-# Contract notes, from the implementation and a live Windows pass:
+# Contract notes for this branch:
 # - The copied command is the history entry immediately before snag. A Remove-Item
 #   between Get-Content and snag is the previous command, so the header is Remove-Item.
-# - snag -Last re-runs that same history entry. After a cancelled -Last, the next
-#   -Last targets snag -Last. The y case is a fresh window whose previous command is echo.
+# - PowerShell copies every line. There is no line cap. -Full and -Last are unknown
+#   options: they print usage, leave the clipboard alone, and do not run a command.
 # - PowerShell's > operator does not replace the process stdout handle, so an
 #   interactive `snag > file` still sees a console. A powershell.exe whose stdout
 #   is redirected does not.
@@ -288,27 +288,39 @@ function Test-PsMain {
         if ($problems.Count -eq 0) { Pass 'ps-norepeat' }
         else { Fail 'ps-norepeat' (($problems -join '; ') + "`nCLIP $(Esc $clip)") }
     }
+    Run-Case 'ps-append' {
+        Send-Line 'echo flag-marker'
+        Wait-Prompt
+        Set-Clipboard -Value 'EXISTING'
+        Send-Line 'snag -Append'
+        Wait-Prompt
+        $body = Clip-Text 'echo flag-marker' @('flag-marker')
+        Assert-Clip 'ps-append' 'snag -Append' ("EXISTING`r`n`r`n" + $body) '[snag] copied 1 lines (appended)' $true
+    }
     foreach ($pair in @(
-        @{ Id = 'ps-full'; Cmd = 'snag -Full'; Append = $false },
-        @{ Id = 'ps-append'; Cmd = 'snag -Append'; Append = $true },
-        @{ Id = 'ps-full-append'; Cmd = 'snag -Full -Append'; Append = $true },
-        @{ Id = 'ps-append-full'; Cmd = 'snag -Append -Full'; Append = $true }
+        @{ Id = 'ps-full'; Cmd = 'snag -Full' },
+        @{ Id = 'ps-full-append'; Cmd = 'snag -Full -Append' },
+        @{ Id = 'ps-append-full'; Cmd = 'snag -Append -Full' },
+        @{ Id = 'ps-cap-full'; Cmd = 'snag -Full' }
     )) {
         $item = $pair
         Run-Case $item.Id {
             Send-Line 'echo flag-marker'
             Wait-Prompt
-            if ($item.Append) { Set-Clipboard -Value 'EXISTING' }
+            Set-Clipboard -Value 'CLIP-FULL'
+            $before = Count-Eq (Get-Screen) 'flag-marker'
             Send-Line $item.Cmd
             Wait-Prompt
-            $body = Clip-Text 'echo flag-marker' @('flag-marker')
-            $expect = $body
-            $status = '[snag] copied 1 lines'
-            if ($item.Append) {
-                $expect = "EXISTING`r`n`r`n" + $body
-                $status = '[snag] copied 1 lines (appended)'
-            }
-            Assert-Clip $item.Id $item.Cmd $expect $status $true
+            $clip = Get-Clip
+            $screen = Get-Screen
+            $after = (After-Command $screen $item.Cmd) -join "`n"
+            $problems = New-Object System.Collections.Generic.List[string]
+            if ($clip -cne 'CLIP-FULL') { $problems.Add('clipboard changed') }
+            if ($after.IndexOf("unknown option '-Full'", [StringComparison]::Ordinal) -lt 0) { $problems.Add('missing unknown option') }
+            if ($after.IndexOf('usage:', [StringComparison]::Ordinal) -lt 0) { $problems.Add('usage not printed') }
+            if ((Count-Eq $screen 'flag-marker') -ne $before) { $problems.Add('echo ran again') }
+            if ($problems.Count -eq 0) { Pass $item.Id }
+            else { Fail $item.Id (($problems -join '; ') + "`nAFTER $after") }
         }
     }
     Run-Case 'ps-cap' {
@@ -322,33 +334,17 @@ function Test-PsMain {
         Send-Line 'snag'
         Wait-Prompt 30000
         $body = New-Object System.Collections.Generic.List[string]
-        foreach ($n in 1..50) { $body.Add("line $n") }
-        $body.Add('... [50 lines omitted] ...')
-        foreach ($n in 101..250) { $body.Add("line $n") }
-        Assert-Clip 'ps-cap' 'snag' (Clip-Text $cmd @($body)) '[snag] copied 200 of 250 lines (snag -Full for all)' $true
-    }
-    Run-Case 'ps-cap-full' {
-        if ($script:label -like '*ConPTY*') {
-            Skip-Case 'ps-cap-full' 'ConPTY viewport cannot hold 250 lines'
-            return
-        }
-        $cmd = '1..250 | ForEach-Object { "line $_" }'
-        Send-Line $cmd
-        Wait-Prompt 90000
-        Send-Line 'snag -Full'
-        Wait-Prompt 30000
-        $body = New-Object System.Collections.Generic.List[string]
         foreach ($n in 1..250) { $body.Add("line $n") }
-        $screen = Get-Screen
         $clip = Get-Clip
+        $screen = Get-Screen
         $expect = Clip-Text $cmd @($body)
+        $after = (After-Command $screen 'snag') -join "`n"
         $problems = New-Object System.Collections.Generic.List[string]
         if ($clip -cne $expect) { $problems.Add('clipboard mismatch') }
         if ($clip -and $clip.Contains('lines omitted')) { $problems.Add('omission marker') }
-        $after = (After-Command $screen 'snag -Full') -join "`n"
         if ($after.IndexOf('[snag] copied 250 lines', [StringComparison]::Ordinal) -lt 0) { $problems.Add('missing copied 250 lines') }
-        if ($problems.Count -eq 0) { Pass 'ps-cap-full' }
-        else { Fail 'ps-cap-full' (($problems -join '; ') + "`nCLIP $(Esc $clip)") }
+        if ($problems.Count -eq 0) { Pass 'ps-cap' }
+        else { Fail 'ps-cap' (($problems -join '; ') + "`nCLIP $(Esc $clip)") }
     }
     Run-Case 'ps-no-exit' {
         Send-Line 'cmd /c exit 3'
@@ -462,33 +458,34 @@ function Test-PsLast {
         Send-Line 'echo last-marker'
         Wait-Prompt
         Set-Clipboard -Value 'CLIP-BEFORE-LAST'
+        $before = Count-Eq (Get-Screen) 'last-marker'
         Send-Line 'snag -Last'
-        Wait-Text "re-run 'echo last-marker'"
-        Send-Line 'n'
         Wait-Prompt
         $screen = Get-Screen
         $clip = Get-Clip
         $after = (After-Command $screen 'snag -Last') -join "`n"
         $problems = New-Object System.Collections.Generic.List[string]
-        if ($after.IndexOf('snag: cancelled', [StringComparison]::Ordinal) -lt 0) { $problems.Add('missing cancelled') }
+        if ($after.IndexOf("unknown option '-Last'", [StringComparison]::Ordinal) -lt 0) { $problems.Add('missing unknown option') }
+        if ($after.IndexOf('usage:', [StringComparison]::Ordinal) -lt 0) { $problems.Add('usage not printed') }
+        if ($after.IndexOf('re-run', [StringComparison]::Ordinal) -ge 0) { $problems.Add('prompted to re-run') }
         if ($clip -cne 'CLIP-BEFORE-LAST') { $problems.Add('clipboard changed') }
-        if ((Count-Eq $screen 'last-marker') -ne 1) { $problems.Add('command ran') }
+        if ((Count-Eq $screen 'last-marker') -ne $before) { $problems.Add('command ran') }
         if ($problems.Count -eq 0) { Pass 'ps-last-n' }
         else { Fail 'ps-last-n' (($problems -join '; ') + "`nAFTER $after") }
     }
     Run-Case 'ps-last-after-cancel' {
         Set-Clipboard -Value 'CLIP-AFTER-CANCEL'
         Send-Line 'snag -Last'
-        Wait-Text 're-run'
-        $row = Get-Row
-        Send-Line 'n'
         Wait-Prompt
         $clip = Get-Clip
+        $row = Get-Row
+        $after = (After-Command (Get-Screen) 'snag -Last') -join "`n"
         $problems = New-Object System.Collections.Generic.List[string]
-        if ($row.IndexOf("re-run 'snag -Last'", [StringComparison]::Ordinal) -lt 0) { $problems.Add("prompt=[$row]") }
+        if ($after.IndexOf("unknown option '-Last'", [StringComparison]::Ordinal) -lt 0) { $problems.Add('missing unknown option') }
+        if ($row.IndexOf('re-run', [StringComparison]::Ordinal) -ge 0) { $problems.Add("prompt=[$row]") }
         if ($clip -cne 'CLIP-AFTER-CANCEL') { $problems.Add('clipboard changed') }
         if ($problems.Count -eq 0) { Pass 'ps-last-after-cancel' }
-        else { Fail 'ps-last-after-cancel' ($problems -join '; ') }
+        else { Fail 'ps-last-after-cancel' (($problems -join '; ') + "`nAFTER $after") }
     }
 }
 
@@ -496,17 +493,19 @@ function Test-PsLastYes {
     Run-Case 'ps-last-y' {
         Send-Line 'echo last-marker'
         Wait-Prompt
+        Set-Clipboard -Value 'CLIP-LAST-Y'
+        $before = Count-Eq (Get-Screen) 'last-marker'
         Send-Line 'snag -Last'
-        Wait-Text "re-run 'echo last-marker'"
-        Send-Line 'y'
         Wait-Prompt
+        $screen = Get-Screen
         $clip = Get-Clip
-        $expect = Clip-Text 'echo last-marker' @('last-marker')
+        $after = (After-Command $screen 'snag -Last') -join "`n"
         $problems = New-Object System.Collections.Generic.List[string]
-        if ($clip -cne $expect) { $problems.Add('clipboard mismatch') }
-        if ($clip -and $clip.Contains('[exit ')) { $problems.Add('unexpected [exit]') }
+        if ($after.IndexOf("unknown option '-Last'", [StringComparison]::Ordinal) -lt 0) { $problems.Add('missing unknown option') }
+        if ($clip -cne 'CLIP-LAST-Y') { $problems.Add('clipboard changed') }
+        if ((Count-Eq $screen 'last-marker') -ne $before) { $problems.Add('command ran') }
         if ($problems.Count -eq 0) { Pass 'ps-last-y' }
-        else { Fail 'ps-last-y' ("CLIP $(Esc $clip)`nEXPECT $(Esc $expect)") }
+        else { Fail 'ps-last-y' (($problems -join '; ') + "`nAFTER $after") }
     }
 }
 
