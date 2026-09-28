@@ -241,5 +241,27 @@ if ($h13 -cne 'Snag') {
         -OutputLines @('[snag] copied 1 lines') -Partial $false -NoHistory $false
 }
 
+# 14. doskey recorded .\snag.cmd. That is the in-flight call, not the previous command.
+$logical14 = @('C:\repo> echo cmd-marker', 'cmd-marker', 'C:\repo> .\snag.cmd')
+$h14 = Resolve-SnagCmdHistory -HistoryLines @('echo cmd-marker', '.\snag.cmd') -CurrentInvocation 'snag' -LogicalLines $logical14
+$r = Select-SnagPreviousOutput -LogicalLines $logical14 -HistoryText $h14 -Shell cmd
+if ($h14 -cne 'echo cmd-marker') {
+    Write-Host "FAIL 14 cmd dot invocation history=[$h14]"
+    $failed++
+} else {
+    Assert-SnagCase -Name '14 cmd dot invocation' -Result $r -CommandText 'echo cmd-marker' `
+        -OutputLines @('cmd-marker') -Partial $false -NoHistory $false
+}
+
+# 15. .\snag.cmd -Full is the same call as the canonical snag -Full.
+$logical15 = @('C:\repo> echo flag-marker', 'flag-marker', 'C:\repo> .\snag.cmd -Full')
+$h15 = Resolve-SnagCmdHistory -HistoryLines @('echo flag-marker', '.\snag.cmd -Full') -CurrentInvocation 'snag -Full' -LogicalLines $logical15
+if ($h15 -cne 'echo flag-marker') {
+    Write-Host "FAIL 15 cmd dot full history=[$h15]"
+    $failed++
+} else {
+    Write-Host 'ok 15 cmd dot full'
+}
+
 if ($failed -gt 0) { exit 1 }
 exit 0

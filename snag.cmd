@@ -3,23 +3,27 @@ rem snag for cmd.exe. Runs the command, streams its output, copies it to the cli
 rem With no command, copies the previous command's output already on screen (does not re-run).
 setlocal DisableDelayedExpansion
 
-if "%~1"=="/?" goto :snag_usage
-if "%~1"=="-?" goto :snag_usage
-if "%~1"=="--help" goto :snag_usage
-if "%~1"=="-Last" goto :snag_usage
+if /I "%~1"=="/?" goto :snag_usage
+if /I "%~1"=="-?" goto :snag_usage
+if /I "%~1"=="--help" goto :snag_usage
+if /I "%~1"=="-Last" goto :snag_usage
 
 if "%~1"=="" goto :snag_buffer_plain
-if "%~1"=="-Full" if "%~2"=="" goto :snag_buffer_full
-if "%~1"=="-Append" if "%~2"=="" goto :snag_buffer_append
-if "%~1"=="-Full" if "%~2"=="-Append" if "%~3"=="" goto :snag_buffer_full_append
-if "%~1"=="-Append" if "%~2"=="-Full" if "%~3"=="" goto :snag_buffer_append_full
+if /I "%~1"=="-Full" if "%~2"=="" goto :snag_buffer_full
+if /I "%~1"=="-Append" if "%~2"=="" goto :snag_buffer_append
+if /I "%~1"=="-Full" if /I "%~2"=="-Append" if "%~3"=="" goto :snag_buffer_full_append
+if /I "%~1"=="-Append" if /I "%~2"=="-Full" if "%~3"=="" goto :snag_buffer_append_full
 
+rem A real command has a second argument. Jump before the substring test: cmd
+rem expands %SNAG_ONE:~0,1% even when the first if is false, and that modifier
+rem is a syntax error while SNAG_ONE is still unset.
+if not "%~2"=="" goto :snag_run
 rem Substring test is outside any parenthesized block: the block would be parsed
 rem before SNAG_ONE is set, and with delayed expansion still off. Stay off so
 rem the run path does not expand ! inside a real command.
-if "%~2"=="" set "SNAG_ONE=%~1"
-if "%~2"=="" if "%SNAG_ONE:~0,1%"=="-" goto :snag_unknown
-if "%~2"=="" if "%SNAG_ONE:~0,1%"=="/" goto :snag_unknown
+set "SNAG_ONE=%~1"
+if "%SNAG_ONE:~0,1%"=="-" goto :snag_unknown
+if "%SNAG_ONE:~0,1%"=="/" goto :snag_unknown
 goto :snag_run
 
 :snag_unknown
@@ -96,4 +100,6 @@ set "SNAG_ARGFILE=%TEMP%\snag-args-%RANDOM%%RANDOM%.txt"
 ) > "%SNAG_ARGFILE%"
 @echo off
 
-%* 2>&1 | powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0snag-sink.ps1"
+rem `call` so a command that starts with '-' is not parsed as a switch on this line.
+rem Without it, `-Full echo hi 2>&1 | ...` aborts cmd with no message.
+call %* 2>&1 | powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0snag-sink.ps1"

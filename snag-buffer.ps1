@@ -94,6 +94,35 @@ function Join-SnagConsoleRows {
     return ,$lines.ToArray()
 }
 
+# doskey stores the typed text (.\snag.cmd, snag -full, Snag). The batch file passes
+# a canonical invocation (snag, snag -Full). Same call when the command name is snag.
+function Get-SnagCmdInvocationKey {
+    param([string]$Line)
+
+    if ([string]::IsNullOrWhiteSpace($Line)) { return $null }
+    $t = $Line.Trim()
+    $token = ''
+    $rest = ''
+    if ($t.StartsWith('"')) {
+        $end = $t.IndexOf('"', 1)
+        if ($end -lt 1) { return $null }
+        $token = $t.Substring(1, $end - 1)
+        $rest = $t.Substring($end + 1).TrimStart()
+    } else {
+        $sp = $t.IndexOf(' ')
+        if ($sp -lt 0) {
+            $token = $t
+        } else {
+            $token = $t.Substring(0, $sp)
+            $rest = $t.Substring($sp + 1).TrimStart()
+        }
+    }
+    $base = [System.IO.Path]::GetFileNameWithoutExtension([System.IO.Path]::GetFileName($token))
+    if (-not [string]::Equals($base, 'snag', [System.StringComparison]::OrdinalIgnoreCase)) { return $null }
+    if ($rest.Length -eq 0) { return 'snag' }
+    return 'snag ' + $rest
+}
+
 function Resolve-SnagCmdHistory {
     param(
         [string[]]$HistoryLines,
@@ -114,11 +143,16 @@ function Resolve-SnagCmdHistory {
     if ($hist.Count -eq 0) { return '' }
 
     $last = $hist[$hist.Count - 1]
-    # cmd accepts -Full / -Append in any case, and the batch file rewrites them to a
-    # canonical invocation. doskey keeps the typed text (snag -full, Snag). Compare
-    # case-insensitively, but search the screen with $last: the boundary match is
-    # ordinal, and the screen shows what was typed.
-    $same = [string]::Equals($last, $CurrentInvocation, [System.StringComparison]::OrdinalIgnoreCase)
+    # Search the screen with $last: the boundary match is ordinal, and the screen
+    # shows what was typed. Equality uses the command name, so .\snag.cmd matches snag.
+    $typedKey = Get-SnagCmdInvocationKey $last
+    $canonKey = Get-SnagCmdInvocationKey $CurrentInvocation
+    $same = $false
+    if ($null -ne $typedKey -and $null -ne $canonKey) {
+        $same = [string]::Equals($typedKey, $canonKey, [System.StringComparison]::OrdinalIgnoreCase)
+    } else {
+        $same = [string]::Equals($last, $CurrentInvocation, [System.StringComparison]::OrdinalIgnoreCase)
+    }
     if ($same) {
         # Consecutive duplicates are not stored. Keep last when an earlier line above the
         # anchor is a longer prompt-boundary match; otherwise last is the in-flight command.
