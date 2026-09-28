@@ -1,5 +1,6 @@
 # snag for PowerShell. Dot-source this from $PROFILE.
 #
+#   snag                                    # copy the previous command's output already on screen
 #   snag git status                         # plain command + args
 #   snag { Get-Process | select -first 5 }  # scriptblock for pipelines / complex lines
 #   snag -Append git diff                   # add to the clipboard instead of replacing it
@@ -7,23 +8,44 @@
 # Output streams to the console as usual; when the command finishes, "> <command>" plus the full
 # output (stdout and stderr) is put on the clipboard.
 
+# Bare snag copies the screen buffer. Dot-sourced: an exit in that file would close this session.
+. "$PSScriptRoot\snag-buffer.ps1"
+
 function snag {
     $appendClip = $false
+    $usage = "usage: snag [-Append]`n" +
+        "       snag [-Append] <command> [args...]`n" +
+        "       snag [-Append] { <pipeline> }`n" +
+        "Bare snag copies the previous command's output already on screen."
+
+    # The option loop only accepts '-*', so a leading /? would otherwise be run as a command.
+    if ($args.Count -ge 1 -and $args[0] -is [string] -and $args[0] -eq '/?') {
+        Write-Host $usage -ForegroundColor Yellow
+        return
+    }
 
     # snag's own options come first; the first argument not starting with '-' begins the command.
     $skip = 0
     while ($skip -lt $args.Count -and $args[$skip] -is [string] -and $args[$skip] -like '-*') {
-        if ($args[$skip] -ne '-Append') {
-            Write-Host "snag: unknown option '$($args[$skip])'" -ForegroundColor Yellow
-            return
+        switch ($args[$skip]) {
+            '-Append' { $appendClip = $true }
+            '-?' { Write-Host $usage -ForegroundColor Yellow; return }
+            '-h' { Write-Host $usage -ForegroundColor Yellow; return }
+            '--help' { Write-Host $usage -ForegroundColor Yellow; return }
+            default {
+                Write-Host "snag: unknown option '$($args[$skip])'" -ForegroundColor Yellow
+                Write-Host $usage -ForegroundColor Yellow
+                return
+            }
         }
-        $appendClip = $true
         $skip++
     }
     $cmdArgs = @($args | Select-Object -Skip $skip)
 
     if ($cmdArgs.Count -eq 0) {
-        Write-Host 'usage: snag [-Append] <command> [args...]   or   snag [-Append] { <pipeline> }' -ForegroundColor Yellow
+        # Already on screen. Do not re-run, and do not exit (this file is dot-sourced).
+        # This branch keeps every line, so the screen copy is not capped.
+        $null = Copy-SnagPreviousOutput -MaxLines 0 -Append:$appendClip
         return
     } elseif ($cmdArgs.Count -eq 1 -and $cmdArgs[0] -is [scriptblock]) {
         $sb = $cmdArgs[0]
