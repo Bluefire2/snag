@@ -1,29 +1,74 @@
 # snag for PowerShell. Dot-source this from $PROFILE.
 #
+#   snag                                    # copy the previous command's output already on screen
 #   snag git status                         # plain command + args
 #   snag { Get-Process | select -first 5 }  # scriptblock for pipelines / complex lines
+#   snag -Last                              # re-run the previous history entry, after confirming
 #   snag -Append git diff                   # add to the clipboard instead of replacing it
 #
 # Output streams to the console as usual; when the command finishes, "> <command>" plus the full
 # output (stdout and stderr) is put on the clipboard.
 
+# Bare snag copies the screen buffer. Dot-sourced: an exit in that file would close this session.
+. "$PSScriptRoot\snag-buffer.ps1"
+
 function snag {
+    $last = $false
     $appendClip = $false
+    $usage = "usage: snag [-Append]`n" +
+        "       snag [-Append] <command> [args...]`n" +
+        "       snag [-Append] { <pipeline> }`n" +
+        "       snag -Last`n" +
+        "Bare snag copies the previous command's output already on screen.`n" +
+        "snag -Last re-runs that command, after y/N."
+
+    # The option loop only accepts '-*', so a leading /? would otherwise be run as a command.
+    if ($args.Count -ge 1 -and $args[0] -is [string] -and $args[0] -eq '/?') {
+        Write-Host $usage -ForegroundColor Yellow
+        return
+    }
 
     # snag's own options come first; the first argument not starting with '-' begins the command.
     $skip = 0
     while ($skip -lt $args.Count -and $args[$skip] -is [string] -and $args[$skip] -like '-*') {
-        if ($args[$skip] -ne '-Append') {
-            Write-Host "snag: unknown option '$($args[$skip])'" -ForegroundColor Yellow
-            return
+        switch ($args[$skip]) {
+            '-Last' { $last = $true }
+            '-Append' { $appendClip = $true }
+            '-?' { Write-Host $usage -ForegroundColor Yellow; return }
+            '-h' { Write-Host $usage -ForegroundColor Yellow; return }
+            '--help' { Write-Host $usage -ForegroundColor Yellow; return }
+            default {
+                Write-Host "snag: unknown option '$($args[$skip])'" -ForegroundColor Yellow
+                Write-Host $usage -ForegroundColor Yellow
+                return
+            }
         }
-        $appendClip = $true
         $skip++
     }
     $cmdArgs = @($args | Select-Object -Skip $skip)
 
-    if ($cmdArgs.Count -eq 0) {
-        Write-Host 'usage: snag [-Append] <command> [args...]   or   snag [-Append] { <pipeline> }' -ForegroundColor Yellow
+    if ($last) {
+        if ($cmdArgs.Count -gt 0) {
+            Write-Host 'snag: -Last takes no command' -ForegroundColor Yellow
+            return
+        }
+        # The current `snag -Last` call isn't in history yet while it's still running, so this is
+        # the command entered right before it.
+        $h = Get-History -Count 1
+        if (-not $h) {
+            Write-Host 'snag: no previous command in history' -ForegroundColor Yellow
+            return
+        }
+        $cmdText = $h.CommandLine
+        $resp = Read-Host "snag: re-run '$cmdText'? [y/N]"
+        if ($resp -notmatch '^[Yy]') {
+            Write-Host 'snag: cancelled' -ForegroundColor Yellow
+            return
+        }
+        $sb = [scriptblock]::Create($cmdText)
+    } elseif ($cmdArgs.Count -eq 0) {
+        # Already on screen. Do not re-run, and do not exit (this file is dot-sourced).
+        $null = Copy-SnagPreviousOutput -Append:$appendClip
         return
     } elseif ($cmdArgs.Count -eq 1 -and $cmdArgs[0] -is [scriptblock]) {
         $sb = $cmdArgs[0]
