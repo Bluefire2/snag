@@ -16,9 +16,9 @@ cmd. It does not run that command again. No-argument `snag` used to print usage;
 In PowerShell, if a native command exits non-zero, a final `[exit N]` line is added. A copy of
 output already on screen does not add one.
 
-A command run copies every line. PowerShell has no line cap, and no `snag -Full` or `snag -Last`.
+A command run copies every line. There is no line cap, and no `snag -Full` or `snag -Last`.
 
-`snag -Append` adds to whatever is already on the clipboard instead of replacing it, with one blank line between them. On bare `snag`, `-Append` works in both shells. On a command, `-Append` is PowerShell only. In cmd, bare `snag` keeps 200 lines of the screen buffer unless you pass `-Full`. `SNAG_MAX_LINES` overrides that cap when `-Full` is absent (`0` means no cap). PowerShell ignores it and always copies every line.
+`snag -Append` adds to whatever is already on the clipboard instead of replacing it, with one blank line between them. On bare `snag`, `-Append` works in both shells. On a command, `-Append` is PowerShell only.
 
 ## Install
 
@@ -40,9 +40,7 @@ Open a new terminal afterwards.
 | PowerShell | `snag cmd /c dir /b` (cmd builtins)                 |
 | PowerShell | `snag -Append git diff` (add to the clipboard instead of replacing it) |
 | cmd        | `snag` (copy the previous command's on-screen output; does not re-run) |
-| cmd        | `snag -Full` (same, no line cap) |
 | cmd        | `snag -Append` (same, append to the clipboard) |
-| cmd        | `snag -Full -Append` (both) |
 | cmd        | `snag dir /b`                                       |
 | cmd        | `snag dir ^| findstr txt` (escape the pipe)         |
 | cmd        | `snag cmd /c "echo a & echo b"` (chaining)          |

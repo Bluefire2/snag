@@ -162,7 +162,7 @@ Assert-SnagCase -Name '6 blank trim' -Result $r -CommandText 'cmd' `
 $r = Select-SnagPreviousOutput -LogicalLines @(
     'PS> echo hi',
     'hi',
-    'PS> snag -Full'
+    'PS> snag -Append'
 ) -HistoryText 'echo hi' -Shell powershell
 Assert-SnagCase -Name '7 snag line excluded' -Result $r -CommandText 'echo hi' `
     -OutputLines @('hi') -Partial $false -NoHistory $false
@@ -212,8 +212,8 @@ if ($h11 -cne 'snag') {
 }
 
 # 12. Canonical invocation differs in case from the doskey line. Drop the in-flight line.
-$logical12 = @('C:\repo> dir', 'file.txt', 'C:\repo> snag -full')
-$h12 = Resolve-SnagCmdHistory -HistoryLines @('dir', 'snag -full') -CurrentInvocation 'snag -Full' -LogicalLines $logical12
+$logical12 = @('C:\repo> dir', 'file.txt', 'C:\repo> snag -append')
+$h12 = Resolve-SnagCmdHistory -HistoryLines @('dir', 'snag -append') -CurrentInvocation 'snag -Append' -LogicalLines $logical12
 $r = Select-SnagPreviousOutput -LogicalLines $logical12 -HistoryText $h12 -Shell cmd
 if ($h12 -cne 'dir') {
     Write-Host "FAIL 12 cmd history flag case history=[$h12]"
@@ -253,14 +253,53 @@ if ($h14 -cne 'echo cmd-marker') {
         -OutputLines @('cmd-marker') -Partial $false -NoHistory $false
 }
 
-# 15. .\snag.cmd -Full is the same call as the canonical snag -Full.
-$logical15 = @('C:\repo> echo flag-marker', 'flag-marker', 'C:\repo> .\snag.cmd -Full')
-$h15 = Resolve-SnagCmdHistory -HistoryLines @('echo flag-marker', '.\snag.cmd -Full') -CurrentInvocation 'snag -Full' -LogicalLines $logical15
+# 15. .\snag.cmd -append is the same call as the canonical snag -Append.
+$logical15 = @('C:\repo> echo flag-marker', 'flag-marker', 'C:\repo> .\snag.cmd -append')
+$h15 = Resolve-SnagCmdHistory -HistoryLines @('echo flag-marker', '.\snag.cmd -append') -CurrentInvocation 'snag -Append' -LogicalLines $logical15
 if ($h15 -cne 'echo flag-marker') {
-    Write-Host "FAIL 15 cmd dot full history=[$h15]"
+    Write-Host "FAIL 15 cmd dot append history=[$h15]"
     $failed++
 } else {
-    Write-Host 'ok 15 cmd dot full'
+    Write-Host 'ok 15 cmd dot append'
+}
+
+# 16. A later output line that equals the command stays in the copy.
+$r = Select-SnagPreviousOutput -LogicalLines @(
+    'PS C:\repo> git status',
+    'On branch main',
+    'git status',
+    'PS C:\repo> snag'
+) -HistoryText 'git status' -Shell powershell
+Assert-SnagCase -Name '16 output echo after command' -Result $r -CommandText 'git status' `
+    -OutputLines @('On branch main', 'git status') -Partial $false -NoHistory $false
+
+# 17. Output that only ends with the invocation is not an earlier snag prompt.
+$logical17 = @(
+    'C:\repo> echo hello snag',
+    'hello snag',
+    'C:\repo> snag'
+)
+$h17 = Resolve-SnagCmdHistory -HistoryLines @('echo hello snag', 'snag') -CurrentInvocation 'snag' -LogicalLines $logical17
+$r = Select-SnagPreviousOutput -LogicalLines $logical17 -HistoryText $h17 -Shell cmd
+if ($h17 -cne 'echo hello snag') {
+    Write-Host "FAIL 17 output suffix history=[$h17]"
+    $failed++
+} else {
+    Assert-SnagCase -Name '17 output suffix' -Result $r -CommandText 'echo hello snag' `
+        -OutputLines @('hello snag') -Partial $false -NoHistory $false
+}
+
+# 18. A full-width row is not glued onto the following prompt.
+$width18 = 20
+$fullRow = '1234567890123456789X'
+$promptRow = 'PS C:\> snag' + (' ' * ($width18 - 'PS C:\> snag'.Length))
+$joined18 = Join-SnagConsoleRows -Rows @($fullRow, $promptRow) -Width $width18
+$case18Ok = $joined18.Count -eq 2 -and $joined18[0] -ceq $fullRow -and $joined18[1] -ceq 'PS C:\> snag'
+if ($case18Ok) {
+    Write-Host 'ok 18 prompt not glued'
+} else {
+    Write-Host "FAIL 18 prompt not glued count=$($joined18.Count) line0=[$($joined18[0])] line1=[$($joined18[1])]"
+    $failed++
 }
 
 if ($failed -gt 0) { exit 1 }

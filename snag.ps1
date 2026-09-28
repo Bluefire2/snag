@@ -44,8 +44,7 @@ function snag {
 
     if ($cmdArgs.Count -eq 0) {
         # Already on screen. Do not re-run, and do not exit (this file is dot-sourced).
-        # This branch keeps every line, so the screen copy is not capped.
-        $null = Copy-SnagPreviousOutput -MaxLines 0 -Append:$appendClip
+        $null = Copy-SnagPreviousOutput -Append:$appendClip
         return
     } elseif ($cmdArgs.Count -eq 1 -and $cmdArgs[0] -is [scriptblock]) {
         $sb = $cmdArgs[0]

@@ -35,6 +35,36 @@ function Test-SnagBoundaryMatch {
     return ([char]::IsWhiteSpace($before) -or $before -eq [char]'>')
 }
 
+# A real prompt ends with '>' (then optional spaces) and then the command.
+# An output line that merely equals the command, or ends with it after a space, does not.
+function Test-SnagPromptBoundary {
+    param([string]$Line, [string]$Segment)
+
+    if (-not (Test-SnagBoundaryMatch -Line $Line -Segment $Segment)) { return $false }
+    if ($null -eq $Line) { $Line = '' }
+    if ($null -eq $Segment) { $Segment = '' }
+    $trimmed = $Line.TrimEnd()
+    if ($Segment.Length -eq 0 -or $trimmed.Length -le $Segment.Length) { return $false }
+    $prefix = $trimmed.Substring(0, $trimmed.Length - $Segment.Length).TrimEnd()
+    if ($prefix.Length -eq 0) { return $false }
+    return $prefix[$prefix.Length - 1] -eq [char]'>'
+}
+
+# The next console row is a prompt, so a full-width row above it is not a wrap.
+function Test-SnagPromptRow {
+    param([string]$Row)
+
+    if ($null -eq $Row) { return $false }
+    $trimmed = $Row.TrimEnd()
+    $gt = $trimmed.LastIndexOf([char]'>')
+    if ($gt -le 0) { return $false }
+    $after = $trimmed.Substring($gt + 1)
+    if ($after.Length -eq 0) { return $false }
+    $i = 0
+    while ($i -lt $after.Length -and [char]::IsWhiteSpace($after[$i])) { $i++ }
+    return $i -lt $after.Length
+}
+
 function Test-SnagContinuationMatch {
     param([string]$Line, [string]$Segment, [string]$Prefix)
 
@@ -75,12 +105,20 @@ function Join-SnagConsoleRows {
     $lines = [System.Collections.Generic.List[string]]::new()
     $pending = ''
     if ($null -ne $Rows) {
-        foreach ($row in $Rows) {
+        for ($i = 0; $i -lt $Rows.Count; $i++) {
+            $row = $Rows[$i]
             if ($null -eq $row) { $row = '' }
-            # A row of length Width whose last character is not a space is glued to the next row.
+            # A row of length Width whose last character is not a space is glued to the next row,
+            # unless that next row is a prompt. Otherwise the snag line is swallowed into the output.
             $continues = $false
             if ($Width -gt 0 -and $row.Length -eq $Width -and $row[$row.Length - 1] -ne ' ') {
-                $continues = $true
+                $nextPrompt = $false
+                if ($i + 1 -lt $Rows.Count) {
+                    $next = $Rows[$i + 1]
+                    if ($null -eq $next) { $next = '' }
+                    $nextPrompt = Test-SnagPromptRow -Row $next
+                }
+                if (-not $nextPrompt) { $continues = $true }
             }
             if ($continues) {
                 $pending = $pending + $row
@@ -94,8 +132,8 @@ function Join-SnagConsoleRows {
     return ,$lines.ToArray()
 }
 
-# doskey stores the typed text (.\snag.cmd, snag -full, Snag). The batch file passes
-# a canonical invocation (snag, snag -Full). Same call when the command name is snag.
+# doskey stores the typed text (.\snag.cmd, snag -append, Snag). The batch file passes
+# a canonical invocation (snag, snag -Append). Same call when the command name is snag.
 function Get-SnagCmdInvocationKey {
     param([string]$Line)
 
@@ -117,6 +155,9 @@ function Get-SnagCmdInvocationKey {
             $rest = $t.Substring($sp + 1).TrimStart()
         }
     }
+    # doskey text uses Windows separators. Normalize so the command name is snag
+    # when this file is parsed off Windows, and unchanged on Windows itself.
+    $token = $token.Replace('\', [System.IO.Path]::DirectorySeparatorChar).Replace('/', [System.IO.Path]::DirectorySeparatorChar)
     $base = [System.IO.Path]::GetFileNameWithoutExtension([System.IO.Path]::GetFileName($token))
     if (-not [string]::Equals($base, 'snag', [System.StringComparison]::OrdinalIgnoreCase)) { return $null }
     if ($rest.Length -eq 0) { return 'snag' }
@@ -164,7 +205,7 @@ function Resolve-SnagCmdHistory {
                 if ($null -eq $line) { $line = '' }
                 $trimmed = $line.TrimEnd()
                 $isLonger = $trimmed.Length -gt $last.Length
-                if ($isLonger -and (Test-SnagBoundaryMatch -Line $trimmed -Segment $last)) {
+                if ($isLonger -and (Test-SnagPromptBoundary -Line $trimmed -Segment $last)) {
                     $longer = $true
                     break
                 }
@@ -226,7 +267,7 @@ function Select-SnagPreviousOutput {
         for ($start = $anchor - 1; $start -ge 0; $start--) {
             # Continuations have to stay strictly above the snag line.
             if (($start + $segmentCount - 1) -ge $anchor) { continue }
-            if (-not (Test-SnagBoundaryMatch -Line $LogicalLines[$start] -Segment $segments[0])) { continue }
+            if (-not (Test-SnagPromptBoundary -Line $LogicalLines[$start] -Segment $segments[0])) { continue }
             $matched = $true
             for ($k = 1; $k -lt $segmentCount; $k++) {
                 $contLine = $LogicalLines[$start + $k]
@@ -272,6 +313,7 @@ function Read-SnagConsoleBuffer {
         $csharp = @'
 using System;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace Snag {
     public class ConsoleNative {
@@ -306,29 +348,34 @@ namespace Snag {
         [DllImport("kernel32.dll", EntryPoint = "ReadConsoleOutputCharacterW",
             SetLastError = true, CharSet = CharSet.Unicode, ExactSpelling = true)]
         public static extern bool ReadConsoleOutputCharacter(
-            IntPtr hConsoleOutput, [Out] char[] lpCharacter, int nLength,
+            IntPtr hConsoleOutput, StringBuilder lpCharacter, int nLength,
             COORD dwReadCoord, out int lpNumberOfCharsRead);
 
         // Null cells become spaces and each row is padded to width, in C# so a tall
         // conhost scrollback is not a PowerShell loop per cell. Fills rows; returns
         // false if a read fails. An empty result (cursor on row 0) is success.
+        // StringBuilder (not char[]) is the marshalling that copies the full row back.
         public static bool ReadRows(IntPtr handle, int width, int cursorY, System.Collections.Generic.List<string> rows) {
             rows.Clear();
             if (width <= 0 || cursorY <= 0) return true;
-            char[] buf = new char[width];
+            StringBuilder buf = new StringBuilder(width);
+            buf.Length = width;
             for (int y = 0; y < cursorY; y++) {
                 int nRead;
                 COORD coord = new COORD();
                 coord.X = 0;
                 coord.Y = (short)y;
+                buf.Clear();
+                buf.Length = width;
                 if (!ReadConsoleOutputCharacter(handle, buf, width, coord, out nRead)) return false;
                 int copy = nRead;
                 if (copy > width) copy = width;
                 if (copy < 0) copy = 0;
                 char[] chars = new char[width];
                 for (int c = 0; c < width; c++) chars[c] = ' ';
-                for (int c = 0; c < copy; c++) {
-                    char ch = buf[c];
+                string raw = buf.ToString();
+                for (int c = 0; c < copy && c < raw.Length; c++) {
+                    char ch = raw[c];
                     chars[c] = ch == '\0' ? ' ' : ch;
                 }
                 rows.Add(new string(chars));
@@ -350,41 +397,44 @@ namespace Snag {
         try {
             Add-Type -TypeDefinition $csharp
         } catch {
-            if (-not ('Snag.ConsoleNative' -as [type])) { return $null }
+            if (-not ('Snag.ConsoleNative' -as [type])) {
+                return [pscustomobject]@{ Reason = 'type' }
+            }
         }
     }
 
     try {
         $handle = [Snag.ConsoleNative]::GetStdHandle(-11)
         $invalid = [IntPtr]::new(-1)
-        if ($handle.Equals([IntPtr]::Zero) -or $handle.Equals($invalid)) { return $null }
+        if ($handle.Equals([IntPtr]::Zero) -or $handle.Equals($invalid)) {
+            return [pscustomobject]@{ Reason = 'console' }
+        }
 
         $info = New-Object Snag.ConsoleNative+CONSOLE_SCREEN_BUFFER_INFO
         $got = [Snag.ConsoleNative]::GetConsoleScreenBufferInfo($handle, [ref]$info)
-        if (-not $got) { return $null }
+        if (-not $got) { return [pscustomobject]@{ Reason = 'console' } }
 
         # srWindow is ignored: row 0 is the top of the Win32 buffer (the ConPTY viewport).
         $width = [int]$info.dwSize.X
         $cursorY = [int]$info.dwCursorPosition.Y
-        if ($width -le 0) { return $null }
+        if ($width -le 0) { return [pscustomobject]@{ Reason = 'console' } }
 
         $rows = [System.Collections.Generic.List[string]]::new()
         # cursorY of 0 reads nothing. ReadRows returns false only when a row read fails.
         $readOk = [Snag.ConsoleNative]::ReadRows($handle, $width, $cursorY, $rows)
-        if (-not $readOk) { return $null }
+        if (-not $readOk) { return [pscustomobject]@{ Reason = 'console' } }
 
         return [pscustomobject]@{
             Width = $width
             Rows  = $rows.ToArray()
         }
     } catch {
-        return $null
+        return [pscustomobject]@{ Reason = 'console' }
     }
 }
 
 function Copy-SnagPreviousOutput {
     param(
-        [int]$MaxLines,
         [switch]$Append,
         [switch]$FromCmd,
         [string]$HistoryFile,
@@ -393,8 +443,12 @@ function Copy-SnagPreviousOutput {
 
     # Before any Write-Host, so snag's own messages are not part of the capture.
     $read = Read-SnagConsoleBuffer
-    if ($null -eq $read) {
-        Write-Host "snag: stdout isn't a console, so the previous output can't be copied" -ForegroundColor Yellow
+    if ($null -eq $read -or $read.Reason) {
+        if ($read -and $read.Reason -eq 'type') {
+            Write-Host "snag: couldn't load the console reader, so the previous output can't be copied" -ForegroundColor Yellow
+        } else {
+            Write-Host "snag: stdout isn't a console, so the previous output can't be copied" -ForegroundColor Yellow
+        }
         return $false
     }
 
@@ -436,13 +490,6 @@ function Copy-SnagPreviousOutput {
         Write-Host "snag: the previous command isn't in the readable screen buffer; the copy may be partial" -ForegroundColor Yellow
     }
 
-    $max = 200
-    if ($PSBoundParameters.ContainsKey('MaxLines')) {
-        $max = $MaxLines
-    } elseif ($env:SNAG_MAX_LINES -match '^\s*\d+\s*$') {
-        $max = [int]$env:SNAG_MAX_LINES
-    }
-
     $lines = [System.Collections.Generic.List[string]]::new()
     if ($null -ne $selected.OutputLines) {
         foreach ($ol in @($selected.OutputLines)) { $lines.Add([string]$ol) }
@@ -450,16 +497,6 @@ function Copy-SnagPreviousOutput {
 
     $total = $lines.Count
     $copied = "$total lines"
-    if ($max -gt 0 -and $total -gt $max) {
-        $head = [int][Math]::Floor($max / 4)
-        $tail = $max - $head
-        $kept = [System.Collections.Generic.List[string]]::new()
-        $kept.AddRange($lines.GetRange(0, $head))
-        $kept.Add(('... [{0:N0} lines omitted] ...' -f ($total - $max)))
-        $kept.AddRange($lines.GetRange($total - $tail, $tail))
-        $lines = $kept
-        $copied = '{0} of {1:N0} lines (snag -Full for all)' -f $max, $total
-    }
 
     $CommandText = $selected.CommandText
     if ($null -eq $CommandText) { $CommandText = '' }
@@ -481,7 +518,6 @@ if ($MyInvocation.InvocationName -ne '.') {
     $fromCmd = $false
     $historyFile = ''
     $currentInvocation = ''
-    $full = $false
     $appendFlag = $false
     $bad = $false
     $i = 0
@@ -499,9 +535,6 @@ if ($MyInvocation.InvocationName -ne '.') {
             $i++
             if ($i -ge $args.Count) { $bad = $true; break }
             $currentInvocation = [string]$args[$i]
-            $i++
-        } elseif ($a -eq '-Full') {
-            $full = $true
             $i++
         } elseif ($a -eq '-Append') {
             $appendFlag = $true
@@ -522,7 +555,6 @@ if ($MyInvocation.InvocationName -ne '.') {
             CurrentInvocation = $currentInvocation
             Append            = $appendFlag
         }
-        if ($full) { $splat['MaxLines'] = 0 }
         $ok = Copy-SnagPreviousOutput @splat
     } catch {
         Write-Host $_.Exception.Message -ForegroundColor Yellow

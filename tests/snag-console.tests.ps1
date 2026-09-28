@@ -20,7 +20,7 @@
 # - PowerShell's > operator does not replace the process stdout handle, so an
 #   interactive `snag > file` still sees a console. A powershell.exe whose stdout
 #   is redirected does not.
-# - .\snag.cmd, lowercase snag -full, and `.\snag.cmd cmd /c echo ...` are asserted
+# - .\snag.cmd, lowercase snag -append, and `.\snag.cmd cmd /c echo ...` are asserted
 #   as the contract (copy the previous command, accept flag case, run the command).
 #   Those three failed on the 2026-09-28 Windows pass.
 
@@ -323,9 +323,9 @@ function Test-PsMain {
             else { Fail $item.Id (($problems -join '; ') + "`nAFTER $after") }
         }
     }
-    Run-Case 'ps-cap' {
+    Run-Case 'ps-long' {
         if ($script:label -like '*ConPTY*') {
-            Skip-Case 'ps-cap' 'ConPTY viewport cannot hold 250 lines'
+            Skip-Case 'ps-long' 'ConPTY viewport cannot hold 250 lines'
             return
         }
         $cmd = '1..250 | ForEach-Object { "line $_" }'
@@ -343,8 +343,8 @@ function Test-PsMain {
         if ($clip -cne $expect) { $problems.Add('clipboard mismatch') }
         if ($clip -and $clip.Contains('lines omitted')) { $problems.Add('omission marker') }
         if ($after.IndexOf('[snag] copied 250 lines', [StringComparison]::Ordinal) -lt 0) { $problems.Add('missing copied 250 lines') }
-        if ($problems.Count -eq 0) { Pass 'ps-cap' }
-        else { Fail 'ps-cap' (($problems -join '; ') + "`nCLIP $(Esc $clip)") }
+        if ($problems.Count -eq 0) { Pass 'ps-long' }
+        else { Fail 'ps-long' (($problems -join '; ') + "`nCLIP $(Esc $clip)") }
     }
     Run-Case 'ps-no-exit' {
         Send-Line 'cmd /c exit 3'
@@ -554,7 +554,7 @@ function Test-PsViewport([bool]$ExpectPartial) {
         $warned = $after.IndexOf($script:partial, [StringComparison]::Ordinal) -ge 0
         $problems = New-Object System.Collections.Generic.List[string]
         if ($lines.Count -lt 1 -or $lines[0] -cne ("> $cmd")) { $problems.Add("header=[$($lines[0])]") }
-        if ($clip -and $clip.Contains('lines omitted')) { $problems.Add('cap trimmed 80 lines') }
+        if ($clip -and $clip.Contains('lines omitted')) { $problems.Add('output was trimmed') }
         $has1 = @($scrolls | Where-Object { $_ -ceq 'scroll 1' }).Count -gt 0
         $has80 = @($scrolls | Where-Object { $_ -ceq 'scroll 80' }).Count -gt 0
         if ($ExpectPartial) {
@@ -590,10 +590,7 @@ function Test-CmdMain {
         Assert-Clip 'cmd-dot-basic' '.\snag.cmd' (Clip-Text 'echo cmd-marker' @('cmd-marker')) '[snag] copied 1 lines' $true
     }
     foreach ($pair in @(
-        @{ Id = 'cmd-full'; Cmd = 'snag -Full'; Append = $false },
-        @{ Id = 'cmd-append'; Cmd = 'snag -Append'; Append = $true },
-        @{ Id = 'cmd-full-append'; Cmd = 'snag -Full -Append'; Append = $true },
-        @{ Id = 'cmd-append-full'; Cmd = 'snag -Append -Full'; Append = $true }
+        @{ Id = 'cmd-append'; Cmd = 'snag -Append'; Append = $true }
     )) {
         $item = $pair
         Run-Case $item.Id {
@@ -612,19 +609,23 @@ function Test-CmdMain {
             Assert-Clip $item.Id $item.Cmd $expect $status $true
         }
     }
-    Run-Case 'cmd-dot-full' {
+    Run-Case 'cmd-dot-append' {
         Send-Line 'echo flag-marker'
         Wait-Prompt
-        Send-Line '.\snag.cmd -Full'
+        Set-Clipboard -Value 'EXISTING'
+        Send-Line '.\snag.cmd -append'
         Wait-Prompt 25000
-        Assert-Clip 'cmd-dot-full' '.\snag.cmd -Full' (Clip-Text 'echo flag-marker' @('flag-marker')) '[snag] copied 1 lines' $true
+        $body = Clip-Text 'echo flag-marker' @('flag-marker')
+        Assert-Clip 'cmd-dot-append' '.\snag.cmd -append' ("EXISTING`r`n`r`n" + $body) '[snag] copied 1 lines (appended)' $true
     }
     Run-Case 'cmd-flag-case' {
         Send-Line 'echo case-marker'
         Wait-Prompt
-        Send-Line 'snag -full'
+        Set-Clipboard -Value 'EXISTING'
+        Send-Line 'snag -append'
         Wait-Prompt 25000
-        Assert-Clip 'cmd-flag-case' 'snag -full' (Clip-Text 'echo case-marker' @('case-marker')) '[snag] copied 1 lines' $true
+        $body = Clip-Text 'echo case-marker' @('case-marker')
+        Assert-Clip 'cmd-flag-case' 'snag -append' ("EXISTING`r`n`r`n" + $body) '[snag] copied 1 lines (appended)' $true
     }
     Run-Case 'cmd-last' {
         Send-Line 'echo should-not-rerun'
@@ -761,14 +762,14 @@ function Open-Cmd([string]$Kind, [string]$Label, [int]$Cols, [int]$Win, [int]$Bu
 }
 
 $mainIds = @(
-    'ps-norepeat', 'ps-full', 'ps-append', 'ps-full-append', 'ps-append-full',
-    'ps-cap', 'ps-cap-full', 'ps-no-exit', 'ps-run-exit',
+    'ps-norepeat', 'ps-append', 'ps-full', 'ps-full-append', 'ps-append-full', 'ps-cap-full',
+    'ps-long', 'ps-no-exit', 'ps-run-exit',
     'ps-help snag -?', 'ps-help snag /?', 'ps-help snag -h', 'ps-help snag --help', 'ps-help snag -Bogus',
     'ps-bare', 'ps-redirect-operator', 'ps-multiline'
 )
 $cmdIds = @(
-    'cmd-path-basic', 'cmd-dot-basic', 'cmd-full', 'cmd-append', 'cmd-full-append', 'cmd-append-full',
-    'cmd-dot-full', 'cmd-flag-case', 'cmd-last', 'cmd-token-case',
+    'cmd-path-basic', 'cmd-dot-basic', 'cmd-append',
+    'cmd-dot-append', 'cmd-flag-case', 'cmd-last', 'cmd-token-case',
     'cmd-help snag -?', 'cmd-help snag /?', 'cmd-help snag -Bogus', 'cmd-whoami', 'cmd-redirect',
     'cmd-run', 'cmd-full-run'
 )
