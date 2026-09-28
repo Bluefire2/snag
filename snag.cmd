@@ -6,13 +6,12 @@ setlocal DisableDelayedExpansion
 if /I "%~1"=="/?" goto :snag_usage
 if /I "%~1"=="-?" goto :snag_usage
 if /I "%~1"=="--help" goto :snag_usage
-if /I "%~1"=="-Last" goto :snag_usage
+rem -Last is not a command. Say so before usage; do not claim PowerShell re-runs it.
+if /I "%~1"=="-Last" set "SNAG_ONE=%~1"
+if /I "%~1"=="-Last" goto :snag_unknown
 
 if "%~1"=="" goto :snag_buffer_plain
-if /I "%~1"=="-Full" if "%~2"=="" goto :snag_buffer_full
 if /I "%~1"=="-Append" if "%~2"=="" goto :snag_buffer_append
-if /I "%~1"=="-Full" if /I "%~2"=="-Append" if "%~3"=="" goto :snag_buffer_full_append
-if /I "%~1"=="-Append" if /I "%~2"=="-Full" if "%~3"=="" goto :snag_buffer_append_full
 
 rem A real command has a second argument. Jump before the substring test: cmd
 rem expands %SNAG_ONE:~0,1% even when the first if is false, and that modifier
@@ -35,39 +34,18 @@ endlocal
 goto :snag_usage
 
 :snag_usage
-echo usage: snag [-Full] [-Append]
+echo usage: snag [-Append]
 echo        snag ^<command^> [args...]
 echo Bare snag copies the previous command's output already on screen.
-echo -Last is PowerShell only; it re-runs the previous command.
 exit /b 1
 
 :snag_buffer_plain
 set "SNAG_INVOC=snag"
-set "SNAG_FULL=0"
-set "SNAG_APP=0"
-goto :snag_buffer
-
-:snag_buffer_full
-set "SNAG_INVOC=snag -Full"
-set "SNAG_FULL=1"
 set "SNAG_APP=0"
 goto :snag_buffer
 
 :snag_buffer_append
 set "SNAG_INVOC=snag -Append"
-set "SNAG_FULL=0"
-set "SNAG_APP=1"
-goto :snag_buffer
-
-:snag_buffer_full_append
-set "SNAG_INVOC=snag -Full -Append"
-set "SNAG_FULL=1"
-set "SNAG_APP=1"
-goto :snag_buffer
-
-:snag_buffer_append_full
-set "SNAG_INVOC=snag -Append -Full"
-set "SNAG_FULL=1"
 set "SNAG_APP=1"
 goto :snag_buffer
 
@@ -79,11 +57,9 @@ if errorlevel 1 (
     del "%SNAG_HIST%" 2>nul
     exit /b 1
 )
-set "SNAG_F="
 set "SNAG_A="
-if "%SNAG_FULL%"=="1" set "SNAG_F=-Full"
 if "%SNAG_APP%"=="1" set "SNAG_A=-Append"
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0snag-buffer.ps1" -FromCmd -HistoryFile "%SNAG_HIST%" -CurrentInvocation "%SNAG_INVOC%" %SNAG_F% %SNAG_A%
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0snag-buffer.ps1" -FromCmd -HistoryFile "%SNAG_HIST%" -CurrentInvocation "%SNAG_INVOC%" %SNAG_A%
 set "SNAG_EC=%ERRORLEVEL%"
 del "%SNAG_HIST%"
 exit /b %SNAG_EC%

@@ -3,28 +3,20 @@
 #   snag                                    # copy the previous command's output already on screen
 #   snag git status                         # plain command + args
 #   snag { Get-Process | select -first 5 }  # scriptblock for pipelines / complex lines
-#   snag -Full git log                      # don't trim long output
-#   snag -Last                              # re-run the previous history entry, after confirming
 #   snag -Append git diff                   # add to the clipboard instead of replacing it
 #
 # Output streams to the console as usual; when the command finishes, "> <command>" plus the full
-# output (stdout and stderr) is put on the clipboard. Output over $env:SNAG_MAX_LINES lines (default
-# 200, 0 = no limit) keeps only its first quarter and the rest from the end, where errors usually are.
+# output (stdout and stderr) is put on the clipboard.
 
 # Bare snag copies the screen buffer. Dot-sourced: an exit in that file would close this session.
 . "$PSScriptRoot\snag-buffer.ps1"
 
 function snag {
-    $maxLines = 200
-    if ($env:SNAG_MAX_LINES -match '^\s*\d+\s*$') { $maxLines = [int]$env:SNAG_MAX_LINES }
-    $last = $false
     $appendClip = $false
-    $usage = "usage: snag [-Full] [-Append]`n" +
-        "       snag [-Full] [-Append] <command> [args...]`n" +
-        "       snag [-Full] [-Append] { <pipeline> }`n" +
-        "       snag -Last`n" +
-        "Bare snag copies the previous command's output already on screen.`n" +
-        "snag -Last re-runs that command, after y/N."
+    $usage = "usage: snag [-Append]`n" +
+        "       snag [-Append] <command> [args...]`n" +
+        "       snag [-Append] { <pipeline> }`n" +
+        "Bare snag copies the previous command's output already on screen."
 
     # The option loop only accepts '-*', so a leading /? would otherwise be run as a command.
     if ($args.Count -ge 1 -and $args[0] -is [string] -and $args[0] -eq '/?') {
@@ -36,8 +28,6 @@ function snag {
     $skip = 0
     while ($skip -lt $args.Count -and $args[$skip] -is [string] -and $args[$skip] -like '-*') {
         switch ($args[$skip]) {
-            '-Full' { $maxLines = 0 }
-            '-Last' { $last = $true }
             '-Append' { $appendClip = $true }
             '-?' { Write-Host $usage -ForegroundColor Yellow; return }
             '-h' { Write-Host $usage -ForegroundColor Yellow; return }
@@ -52,28 +42,9 @@ function snag {
     }
     $cmdArgs = @($args | Select-Object -Skip $skip)
 
-    if ($last) {
-        if ($cmdArgs.Count -gt 0) {
-            Write-Host 'snag: -Last takes no command' -ForegroundColor Yellow
-            return
-        }
-        # The current `snag -Last` call isn't in history yet while it's still running, so this is
-        # the command entered right before it.
-        $h = Get-History -Count 1
-        if (-not $h) {
-            Write-Host 'snag: no previous command in history' -ForegroundColor Yellow
-            return
-        }
-        $cmdText = $h.CommandLine
-        $resp = Read-Host "snag: re-run '$cmdText'? [y/N]"
-        if ($resp -notmatch '^[Yy]') {
-            Write-Host 'snag: cancelled' -ForegroundColor Yellow
-            return
-        }
-        $sb = [scriptblock]::Create($cmdText)
-    } elseif ($cmdArgs.Count -eq 0) {
+    if ($cmdArgs.Count -eq 0) {
         # Already on screen. Do not re-run, and do not exit (this file is dot-sourced).
-        $null = Copy-SnagPreviousOutput -MaxLines $maxLines -Append:$appendClip
+        $null = Copy-SnagPreviousOutput -Append:$appendClip
         return
     } elseif ($cmdArgs.Count -eq 1 -and $cmdArgs[0] -is [scriptblock]) {
         $sb = $cmdArgs[0]
@@ -118,17 +89,6 @@ function snag {
     while ($lines.Count -gt 0 -and $lines[$lines.Count - 1] -eq '') { $lines.RemoveAt($lines.Count - 1) }
 
     $total = $lines.Count
-    $copied = "$total lines"
-    if ($maxLines -gt 0 -and $total -gt $maxLines) {
-        $head = [int][Math]::Floor($maxLines / 4)
-        $tail = $maxLines - $head
-        $kept = [System.Collections.Generic.List[string]]::new()
-        $kept.AddRange($lines.GetRange(0, $head))
-        $kept.Add(('... [{0:N0} lines omitted] ...' -f ($total - $maxLines)))
-        $kept.AddRange($lines.GetRange($total - $tail, $tail))
-        $lines = $kept
-        $copied = '{0} of {1:N0} lines (snag -Full for all)' -f $maxLines, $total
-    }
 
     $status = ''
     if ($exitCode) {
@@ -143,5 +103,5 @@ function snag {
         if ($existing) { $text = $existing.TrimEnd("`r", "`n") + "`r`n`r`n" + $text }
     }
     Set-Clipboard -Value $text
-    Write-Host "[snag] copied $copied$status$(if ($appendClip) { ' (appended)' })" -ForegroundColor DarkGray
+    Write-Host "[snag] copied $total lines$status$(if ($appendClip) { ' (appended)' })" -ForegroundColor DarkGray
 }
