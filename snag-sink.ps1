@@ -20,22 +20,6 @@ if ($env:SNAG_ARGFILE -and (Test-Path -LiteralPath $env:SNAG_ARGFILE)) {
     Remove-Item -LiteralPath $env:SNAG_ARGFILE -ErrorAction SilentlyContinue
 }
 
-# Long output keeps its first quarter and the rest from the end (see snag.ps1).
-$maxLines = 200
-if ($env:SNAG_MAX_LINES -match '^\s*\d+\s*$') { $maxLines = [int]$env:SNAG_MAX_LINES }
-$total = $lines.Count
-$copied = "$total lines"
-if ($maxLines -gt 0 -and $total -gt $maxLines) {
-    $head = [int][Math]::Floor($maxLines / 4)
-    $tail = $maxLines - $head
-    $kept = [System.Collections.Generic.List[string]]::new()
-    $kept.AddRange($lines.GetRange(0, $head))
-    $kept.Add(('... [{0:N0} lines omitted] ...' -f ($total - $maxLines)))
-    $kept.AddRange($lines.GetRange($total - $tail, $tail))
-    $lines = $kept
-    $copied = '{0} of {1:N0} lines (set SNAG_MAX_LINES=0 for all)' -f $maxLines, $total
-}
-
 $text = "> $cmdText`r`n" + ($lines -join "`r`n")
 Set-Clipboard -Value $text
-Write-Host "[snag] copied $copied" -ForegroundColor DarkGray
+Write-Host "[snag] copied $($lines.Count) lines" -ForegroundColor DarkGray
